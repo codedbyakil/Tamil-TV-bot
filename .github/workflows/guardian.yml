@@ -4,12 +4,12 @@ name: 🛡️ Guardian (10s Loop, No Secrets)
 on:
   workflow_dispatch:
   schedule:
-    - cron: '10 3 * * *'  # Restart daily at 3:10 AM UTC
+    - cron: '10 3 * * *'
 
 jobs:
   guardian:
     runs-on: ubuntu-latest
-    timeout-minutes: 350  # 5h 50m
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
@@ -18,95 +18,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install
+      - name: Install dependencies
         run: pip install requests
 
       - name: Run Guardian
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: |
-          mkdir -p data
-          python <<'PY'
-import os, json, time, subprocess, requests
-from datetime import datetime
-
-TG_TOKEN = os.getenv("TG_BOT_TOKEN")
-TG_CHAT = os.getenv("TG_CHAT_ID")
-
-def send_msg(text):
-    if TG_TOKEN and TG_CHAT:
-        try:
-            requests.post(
-                f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                json={"chat_id": TG_CHAT, "text": text[:4000]}
-            )
-        except: pass
-
-def is_alive(url):
-    try:
-        r = requests.head(url, timeout=5, headers={"User-Agent": "VLC"})
-        return r.status_code in (200, 302, 206, 403)
-    except:
-        return False
-
-def build_m3u():
-    streams_file = "data/streams.json"
-    if not os.path.exists(streams_file):
-        return ["#EXTM3U\n# No streams yet. Add Xtream via Telegram."]
-    
-    with open(streams_file) as f:
-        db = json.load(f)
-    
-    lines = ["#EXTM3U"]
-    for key, candidates in db.items():
-        # Sort: newest first
-        candidates.sort(key=lambda x: x["added_at"], reverse=True)
-        selected = None
-        for cand in candidates:
-            if is_alive(cand["url"]):
-                selected = cand
-                break
-        name = selected["name"] if selected else candidates[0]["name"] + " ❌"
-        cat = selected["category"] if selected else candidates[0]["category"]
-        url = selected["url"] if selected else candidates[0]["url"]
-        lines.append(f'#EXTINF:-1 group-title="{cat}",{name}')
-        lines.append(url)
-    return lines
-
-start = time.time()
-send_msg("🛡️ Guardian started. Checking streams every 10s.")
-print("🛡️ Guardian started.")
-
-while time.time() - start < 5*3600 + 50*60:
-    new_m3u = build_m3u()
-    
-    # Check if changed
-    current = []
-    if os.path.exists("master.m3u"):
-        with open("master.m3u") as f:
-            current = [line.rstrip() for line in f]
-    
-    if new_m3u != current:
-        with open("master.m3u", "w") as f:
-            f.write("\n".join(new_m3u) + "\n")
-        
-        # Commit
-        subprocess.run(["git", "config", "user.name", "Guardian"], check=False)
-        subprocess.run(["git", "config", "user.email", "actions@github.com"], check=False)
-        subprocess.run(["git", "add", "master.m3u"], check=False)
-        result = subprocess.run(
-            ["git", "diff", "--quiet", "master.m3u"],
-            capture_output=True
-        )
-        if result.returncode != 0:
-            subprocess.run(["git", "commit", "-m", "🛡️ Auto M3U update"], check=False)
-            subprocess.run(["git", "push"], check=False)
-            send_msg(f"✅ Updated master.m3u ({len(new_m3u)-1} channels)")
-            print("✅ Pushed update")
-
-    time.sleep(10)
-
-send_msg("🛑 Guardian job ended (5h50m max). Restart via GitHub Actions.")
-print("⏰ Guardian ended.")
-PY
+        run: python scripts/guardian_loop.py
