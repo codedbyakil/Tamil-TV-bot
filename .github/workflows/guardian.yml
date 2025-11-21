@@ -1,5 +1,5 @@
 # .github/workflows/guardian.yml
-name: 🛡️ Guardian (10s Loop, No Secrets)
+name: 🛡️ Guardian (10s Loop)
 
 on:
   workflow_dispatch:
