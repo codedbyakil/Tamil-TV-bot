@@ -1,0 +1,101 @@
+# .github/workflows/fetch.yml
+name: 📥 Fetch Streams (Credential-Only)
+
+on:
+  repository_dispatch:
+    types: [add_xtream]
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch and save streams
+        env:
+          XTREAM_HOST: ${{ github.event.client_payload.host }}
+          XTREAM_USER: ${{ github.event.client_payload.user }}
+          XTREAM_PASS: ${{ github.event.client_payload.pass }}
+        run: |
+          mkdir -p data
+          python <<'PY'
+import os, json, requests
+from datetime import datetime
+
+host = os.getenv("XTREAM_HOST")
+user = os.getenv("XTREAM_USER")
+passwd = os.getenv("XTREAM_PASS")
+
+if not all([host, user, passwd]):
+    print("❌ Missing host/user/pass")
+    exit(1)
+
+print(f"📡 Fetching from {host}...")
+base = f"{host}/player_api.php"
+p = {"username": user, "password": passwd}
+
+try:
+    cats = requests.get(f"{base}?action=get_live_categories", params=p, timeout=10).json()
+    cat_map = {c["category_id"]: c["category_name"] for c in cats}
+    streams = requests.get(f"{base}?action=get_live_streams", params=p, timeout=10).json()
+except Exception as e:
+    print(f"❌ API error: {e}")
+    exit(1)
+
+healthy = []
+for s in streams:
+    url = s["stream_url"]
+    try:
+        r = requests.head(url, timeout=5, headers={"User-Agent": "VLC/3.0"})
+        if r.status_code in (200, 302, 206, 403):
+            healthy.append({
+                "url": url,
+                "name": s["name"],
+                "category": cat_map.get(s["category_id"], "Other"),
+                "added_at": datetime.utcnow().isoformat()
+            })
+    except:
+        pass
+
+print(f"✅ {len(healthy)} working streams")
+
+# Load existing
+streams_file = "data/streams.json"
+db = {}
+if os.path.exists(streams_file):
+    with open(streams_file) as f:
+        db = json.load(f)
+
+# Group by normalized name
+def norm(n): return n.strip().lower().replace(" ", "_").replace("-", "_")
+
+for item in healthy:
+    key = norm(item["name"])
+    if key not in db:
+        db[key] = []
+    # Avoid dupes
+    if not any(x["url"] == item["url"] for x in db[key]):
+        db[key].append(item)
+
+# Save
+with open(streams_file, "w") as f:
+    json.dump(db, f, indent=2)
+
+print("💾 Saved to data/streams.json")
+PY
+
+      - name: Commit streams.json
+        run: |
+          git config --global user.name "fetch-bot"
+          git config --global user.email "actions@github.com"
+          git add data/streams.json
+          git commit -m "📥 Added streams" || echo "No changes"
+          git push
