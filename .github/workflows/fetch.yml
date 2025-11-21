@@ -1,5 +1,4 @@
-# .github/workflows/fetch.yml
-name: 📥 Fetch Streams (Credential-Only)
+name: Fetch Streams
 
 on:
   repository_dispatch:
@@ -19,17 +18,17 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Fetch and save streams
+      - name: Fetch streams
         env:
           XTREAM_HOST: ${{ github.event.client_payload.host }}
           XTREAM_USER: ${{ github.event.client_payload.user }}
           XTREAM_PASS: ${{ github.event.client_payload.pass }}
         run: python scripts/fetch_once.py
 
-      - name: Commit streams.json
+      - name: Commit streams
         run: |
-          git config --global user.name "fetch-bot"
+          git config --global user.name "bot"
           git config --global user.email "actions@github.com"
           git add data/streams.json
-          git commit -m "📥 Added streams" || echo "No changes"
+          git commit -m "📥 Add streams" || echo "No changes"
           git push
